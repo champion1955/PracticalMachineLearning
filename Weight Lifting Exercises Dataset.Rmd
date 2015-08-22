@@ -1,0 +1,120 @@
+---
+title: "Practical Machine Learning Project"
+author: "Peter Blane"
+date: "August 22, 2015"
+output: html_document
+---
+# Overview
+Machine learning is a subfield of computer science that evolved from the study of pattern recognition and computational learning theory in artificial intelligence. Machine learning explores the construction and study of algorithms that can learn from and make predictions on data. Such algorithms operate by building a model from example inputs in order to make data-driven predictions or decisions, rather than following strictly static program instructions. (Source: https://en.wikipedia.org/wiki/Machine_learning)
+
+Part of the Practical Machine Learning cource from the Data Science Certification is an assignment to use machine learning to predict the types of excersize participants performed that were recorded in the following data sets:
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv 
+
+## About The Data
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. (Source: http://groupware.les.inf.puc-rio.br/har)
+
+### Exploring and Formatting The Data
+
+Loading data into R and assigning to objects.  From the summary, we can see the 5 classes mentioned above in the "About The Data" section.
+
+
+```{r}
+orig_test <- read.csv("pml-testing.csv")
+orig_train <- read.csv("pml-training.csv")
+summary(orig_train$classe)
+```
+
+In order to estimate the out-of-sample error, let's split the training set (orig_train) into a traditional "training" and "test" set to validate.
+
+```{r}
+library(caret)
+inTrain <- createDataPartition(y=orig_train$classe, p=0.7, list=F)
+train1 <- orig_train[inTrain, ]
+test1 <- orig_train[-inTrain, ]
+```
+
+Take out data with little - or no - variance and columns that have a lot of N/A's or do not impact the prediction.
+
+```{r}
+# take out variance
+NoVar <- nearZeroVar(train1)
+train1 <- train1[, -NoVar]
+test1 <- test1[, -NoVar]
+
+# take out N/A's
+NAS <- sapply(train1, function(x) mean(is.na(x))) > 0.95
+train1 <- train1[, NAS == FALSE]
+test1 <- test1[, NAS == FALSE]
+
+# no impact columns
+train1 <- train1[, -(1:5)]
+test1 <- test1[, -(1:5)]
+```
+
+### The Model
+
+Now that we have the data, we can use the randomForest package to create a model and do cross validation.
+
+```{r}
+control <- trainControl(method="cv", number=3, verboseIter=F)
+fit <- train(classe ~., data = train1, method = "rf", trControl = control)
+fit$finalModel
+```
+
+### Confirming the Model
+
+Let's compare the test set to the training set of the original data set that we split (orig_train) to see if the randomForest model is acceptable.
+
+```{r}
+predict <- predict(fit, newdata = test1)
+confusionMatrix(test1$classe, predict)
+```
+
+Based on the statistics, the accuracy is 99.9%.  So, we will proceed with the randomForest model.
+
+### Using the Model
+In order to predict the test set, since we have confirmed the randomForest model, we need to go back and use the FULL data sets instead the one we split to chose the model.  So, we pass the same arguments from above on the full data sets.
+
+```{r}
+NoVarFull <- nearZeroVar(orig_train)
+orig_train <- orig_train[, -NoVarFull]
+orig_test <- orig_test[, -NoVarFull]
+NASfull <- sapply(orig_train, function(x) mean(is.na(x))) > 0.95
+orig_train <- orig_train[, NASfull == FALSE]
+orig_test <- orig_test[, NASfull == FALSE]
+orig_train <- orig_train[, -(1:5)]
+orig_test <- orig_test[, -(1:5)]
+```
+
+Now pass the randomForest model to the full dataset:
+```{r}
+controlFull <- trainControl(method="cv", number=3, verboseIter=F)
+fitFull <- train(classe ~ ., data = orig_train, method = "rf", trControl = controlFull)
+```
+
+And now to the test data set:
+```{r}
+predictFull <- predict(fitFull, newdata = orig_test)
+confusionMatrix(orig_test$classe, predictFull)
+```
+
+### Creating files
+```{r}
+predictFull <- as.character(predictFull)
+pml_write_files <- function(x) {
+     n <- length(x)
+     for(i in 1:n) {
+         filename <- paste0("problem_id_", i, ".txt")
+         write.table(x[i], file=filename, quote=F, row.names=F, col.names=F)
+     }
+ }
+pml_write_files(predictFull)
+```
